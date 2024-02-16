@@ -368,22 +368,26 @@ function allow_swarm_whitelist_traffic() {
 function allow_local_whitelist_traffic() {
 	local IP
 	local RESULT
-	for IP in $WHITELIST_SOURCE_IPS; do
-		if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$IP" --destination "$SUBNET" --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
-			log_error "Unexpected error while setting whitelist allow rule: $RESULT"
-			return 1
-		else
-			log "Added rule: --table filter --insert TRAFFICJAM --source $IP --destination $SUBNET --jump RETURN"
-		fi
-	done
-	for IP in $WHITELIST_DESTINATION_IPS; do
-		if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$SUBNET" --destination "$IP" --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
-			log_error "Unexpected error while setting whitelist allow rule: $RESULT"
-			return 1
-		else
-			log "Added rule: --table filter --insert TRAFFICJAM --source $SUBNET --destination $IP --jump RETURN"
-		fi
-	done
+	if [[ -n "${WHITELIST_SOURCE_IPS:-}" ]]; then
+		for IP in $WHITELIST_SOURCE_IPS; do
+			if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$IP" --destination "$SUBNET" --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
+				log_error "Unexpected error while setting whitelist allow rule: $RESULT"
+				return 1
+			else
+				log "Added rule: --table filter --insert TRAFFICJAM --source $IP --destination $SUBNET --jump RETURN"
+			fi
+		done
+	fi
+	if [[ -n "${WHITELIST_DESTINATION_IPS:-}" ]]; then
+		for IP in $WHITELIST_DESTINATION_IPS; do
+			if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$SUBNET" --destination "$IP" --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
+				log_error "Unexpected error while setting whitelist allow rule: $RESULT"
+				return 1
+			else
+				log "Added rule: --table filter --insert TRAFFICJAM --source $SUBNET --destination $IP --jump RETURN"
+			fi
+		done
+	fi
 	if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$SUBNET" --destination "$SUBNET" --match conntrack --ctstate RELATED,ESTABLISHED --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
 		log_error "Unexpected error while setting whitelist allow rule: $RESULT"
 		return 1
