@@ -85,7 +85,8 @@ function deploy_service() {
 				--env TZ="$TZ" \
 				--env POLL_INTERVAL="$POLL_INTERVAL" \
 				--env NETWORK="$NETWORK" \
-				--env WHITELIST_FILTER="$WHITELIST_FILTER" \
+				--env WHITELIST_SOURCE_FILTER="$WHITELIST_SOURCE_FILTER" \
+				--env WHITELIST_DESTINATION_FILTER="$WHITELIST_DESTINATION_FILTER" \
 				--env DEBUG="$DEBUG" \
 				--cap-add NET_ADMIN \
 				--cap-add SYS_ADMIN \
@@ -182,20 +183,40 @@ function get_network_subnet() {
 	fi
 }
 
-function get_whitelisted_container_ips() {
-	local CONTAINER_IDS
-	if ! CONTAINER_IDS=$(docker ps --filter "$WHITELIST_FILTER" --filter network="$NETWORK" --format="{{ .ID }}" 2>&1) || [[ -z "$CONTAINER_IDS" ]]; then
-		log_error "Unexpected error while getting whitelist container IDs: $CONTAINER_IDS"
-		return 1
-	fi
-	log_debug "Whitelisted containers: $CONTAINER_IDS"
+function get_whitelisted_source_container_ips() {
+	if [[ -n "${WHITELIST_SOURCE_FILTER:-}" ]]; then
+		local CONTAINER_IDS
+		if ! CONTAINER_IDS=$(docker ps --filter "$WHITELIST_SOURCE_FILTER" --filter network="$NETWORK" --format="{{ .ID }}" 2>&1) || [[ -z "$CONTAINER_IDS" ]]; then
+			log_error "Unexpected error while getting whitelist source container IDs: $CONTAINER_IDS"
+			return 1
+		fi
+		log_debug "Whitelisted source containers: $CONTAINER_IDS"
 
-	if ! WHITELIST_IPS=$(xargs docker inspect --format="{{ (index .NetworkSettings.Networks \"$NETWORK\").IPAddress }}" <<< "$CONTAINER_IDS" 2>&1) || [[ -z "$WHITELIST_IPS" ]]; then
-		log_error "Unexpected error while getting whitelisted container IPs: ${WHITELIST_IPS}"
-		return 1
-	fi
+		if ! WHITELIST_SOURCE_IPS=$(xargs docker inspect --format="{{ (index .NetworkSettings.Networks \"$NETWORK\").IPAddress }}" <<< "$CONTAINER_IDS" 2>&1) || [[ -z "$WHITELIST_SOURCE_IPS" ]]; then
+			log_error "Unexpected error while getting whitelisted source container IPs: ${WHITELIST_SOURCE_IPS}"
+			return 1
+		fi
 
-	log_debug "Whitelisted container IPs: $WHITELIST_IPS"
+		log_debug "Whitelisted source container IPs: $WHITELIST_SOURCE_IPS"
+	fi
+}
+
+function get_whitelisted_destination_container_ips() {
+	if [[ -n "${WHITELIST_DESTINATION_FILTER:-}" ]]; then
+		local CONTAINER_IDS
+		if ! CONTAINER_IDS=$(docker ps --filter "$WHITELIST_DESTINATION_FILTER" --filter network="$NETWORK" --format="{{ .ID }}" 2>&1) || [[ -z "$CONTAINER_IDS" ]]; then
+			log_error "Unexpected error while getting whitelist destination container IDs: $CONTAINER_IDS"
+			return 1
+		fi
+		log_debug "Whitelisted destination containers: $CONTAINER_IDS"
+
+		if ! WHITELIST_DESTINATION_IPS=$(xargs docker inspect --format="{{ (index .NetworkSettings.Networks \"$NETWORK\").IPAddress }}" <<< "$CONTAINER_IDS" 2>&1) || [[ -z "$WHITELIST_DESTINATION_IPS" ]]; then
+			log_error "Unexpected error while getting whitelisted destination container IPs: ${WHITELIST_DESTINATION_IPS}"
+			return 1
+		fi
+
+		log_debug "Whitelisted destination container IPs: $WHITELIST_DESTINATION_IPS"
+	fi
 }
 
 function get_netns() {
@@ -315,7 +336,7 @@ function block_host_traffic() {
 }
 
 function report_local_whitelist_ips() {
-	log "#WHITELIST_IPS#$WHITELIST_IPS $LOCAL_LOAD_BALANCER_IP"
+	log "#WHITELIST_IPS#$WHITELIST_SOURCE_IPS $WHITELIST_DESTINATION_IPS $LOCAL_LOAD_BALANCER_IP"
 }
 
 function allow_local_load_balancer_traffic() {
@@ -330,7 +351,7 @@ function allow_local_load_balancer_traffic() {
 function allow_swarm_whitelist_traffic() {
 	if [[ -n "$ALLOWED_SWARM_IPS" ]]; then
 		for IP in $ALLOWED_SWARM_IPS; do
-			if ! grep -q "$IP" <<< "$WHITELIST_IPS" && ! grep -q "$IP" <<< "$LOCAL_LOAD_BALANCER_IP"; then
+			if ! grep -q "$IP" <<< "$WHITELIST_SOURCE_IPS" && ! grep -q "$IP" <<< "$WHITELIST_DESTINATION_IPS" && ! grep -q "$IP" <<< "$LOCAL_LOAD_BALANCER_IP"; then
 				if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$IP" --destination "$SUBNET" --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
 					log_error "Unexpected error while setting allow swarm whitelist rule: $RESULT"
 					return 1
@@ -347,12 +368,20 @@ function allow_swarm_whitelist_traffic() {
 function allow_local_whitelist_traffic() {
 	local IP
 	local RESULT
-	for IP in $WHITELIST_IPS; do
+	for IP in $WHITELIST_SOURCE_IPS; do
 		if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$IP" --destination "$SUBNET" --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
 			log_error "Unexpected error while setting whitelist allow rule: $RESULT"
 			return 1
 		else
 			log "Added rule: --table filter --insert TRAFFICJAM --source $IP --destination $SUBNET --jump RETURN"
+		fi
+	done
+	for IP in $WHITELIST_DESTINATION_IPS; do
+		if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$SUBNET" --destination "$IP" --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then
+			log_error "Unexpected error while setting whitelist allow rule: $RESULT"
+			return 1
+		else
+			log "Added rule: --table filter --insert TRAFFICJAM --source $SUBNET --destination $IP --jump RETURN"
 		fi
 	done
 	if ! RESULT=$(iptables_tj --table filter --insert TRAFFICJAM --source "$SUBNET" --destination "$SUBNET" --match conntrack --ctstate RELATED,ESTABLISHED --jump RETURN --match comment --comment "trafficjam_$INSTANCE_ID $DATE" 2>&1); then

@@ -6,11 +6,6 @@ if [[ "${1:-}" != "--clear" ]]; then
 		echo "NETWORK is not set" >&2
 		exit 1
 	fi
-
-	if [[ -z "${WHITELIST_FILTER:-}" ]]; then
-		echo "WHITELIST_FILTER is not set" >&2
-		exit 1
-	fi
 fi
 
 #Initialize variables since we set -u
@@ -23,7 +18,8 @@ fi
 : "${TZ:=}"
 NETNS=""
 OLD_SUBNET=""
-OLD_WHITELIST_IPS=""
+OLD_WHITELIST_SOURCE_IPS=""
+OLD_WHITELIST_DESTINATION_IPS=""
 LOCAL_LOAD_BALANCER_IP=""
 OLD_LOCAL_LOAD_BALANCER_IP=""
 SERVICE_LOGS_SINCE=""
@@ -79,7 +75,8 @@ else
 
 		get_network_subnet || continue
 
-		get_whitelisted_container_ips || continue
+		get_whitelisted_source_container_ips || continue
+		get_whitelisted_destination_container_ips || continue
 
 		if [[ "$NETWORK_DRIVER" == "overlay" ]]; then
 			get_netns || continue
@@ -90,7 +87,8 @@ else
 
 		if [[ \
 			"$SUBNET" != "$OLD_SUBNET" || \
-			"$WHITELIST_IPS" != "$OLD_WHITELIST_IPS" || \
+			"$WHITELIST_SOURCE_IPS" != "$OLD_WHITELIST_SOURCE_IPS" || \
+			"$WHITELIST_DESTINATION_IPS" != "$OLD_WHITELIST_DESTINATION_IPS" || \
 			"$LOCAL_LOAD_BALANCER_IP" != "$OLD_LOCAL_LOAD_BALANCER_IP" \
 		]]; then
 
@@ -118,7 +116,8 @@ else
 			fi
 
 			OLD_SUBNET="$SUBNET"
-			OLD_WHITELIST_IPS="$WHITELIST_IPS"
+			OLD_WHITELIST_SOURCE_IPS="$WHITELIST_SOURCE_IPS"
+			OLD_WHITELIST_DESTINATION_IPS="$WHITELIST_DESTINATION_IPS"
 			OLD_LOCAL_LOAD_BALANCER_IP="$LOCAL_LOAD_BALANCER_IP"
 		fi
 
