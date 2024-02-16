@@ -9,6 +9,8 @@ if [[ "${1:-}" != "--clear" ]]; then
 fi
 
 #Initialize variables since we set -u
+: "${WHITELIST_SOURCE_IPS:=}"
+: "${WHITELIST_DESTINATION_IPS:=}"
 : "${INSTANCE_ID:=DEFAULT}"
 : "${SWARM_DAEMON:=}"
 : "${SWARM_IMAGE:=kaysond/trafficjam}"
